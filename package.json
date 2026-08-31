@@ -4,7 +4,7 @@
   "type": "module",
   "license": "MIT",
   "author": "Anand J",
-  "description": "Find open campsites in California state parks (ReserveCalifornia) — MCP server over stdio",
+  "description": "Find open campsites in California state parks (ReserveCalifornia) \u2014 MCP server over stdio",
   "keywords": [
     "mcp",
     "modelcontextprotocol",
@@ -36,7 +36,8 @@
     "sync:core": "node scripts/sync-core.mjs",
     "check:core": "node scripts/sync-core.mjs --check",
     "inspect": "npm run build && npx @modelcontextprotocol/inspector node dist/index.js",
-    "prepublishOnly": "npm run check:core && npm test && npm run build"
+    "prepublishOnly": "npm run check:core && npm test",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.22.0",
