@@ -1,0 +1,55 @@
+{
+  "name": "scouter-mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "author": "Anand J",
+  "description": "Find open campsites in California state parks (ReserveCalifornia) — MCP server over stdio",
+  "keywords": [
+    "mcp",
+    "modelcontextprotocol",
+    "mcp-server",
+    "camping",
+    "campsite",
+    "reservecalifornia",
+    "california-state-parks",
+    "availability"
+  ],
+  "homepage": "https://github.com/anand-loop/scouter-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anand-loop/scouter-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/anand-loop/scouter-mcp/issues"
+  },
+  "bin": {
+    "scouter-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist/index.js"
+  ],
+  "scripts": {
+    "build": "tsc --noEmit && node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "sync:core": "node scripts/sync-core.mjs",
+    "check:core": "node scripts/sync-core.mjs --check",
+    "inspect": "npm run build && npx @modelcontextprotocol/inspector node dist/index.js",
+    "prepublishOnly": "npm run check:core && npm test && npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.22.0",
+    "date-fns": "^4.4.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.2",
+    "esbuild": "^0.25.12",
+    "typescript": "~6.0.2",
+    "vitest": "^3.2.7"
+  },
+  "engines": {
+    "node": ">=20.19"
+  }
+}

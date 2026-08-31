@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # Passes without scouter-web on disk: with no source to compare against it verifies
+      # src/core/ against its own manifest, which is what catches a local edit to the port.
+      - run: npm run check:core
+      - run: npm test
+      - run: npm run build

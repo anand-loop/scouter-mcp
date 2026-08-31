@@ -1,0 +1,31 @@
+{
+  // Node-targeted, unlike scouter-web's tsconfig.app.json — no DOM lib, no vite/client.
+  // `moduleResolution: bundler` is what lets the ported core keep its extensionless
+  // relative imports (`from './geo'`); esbuild bundles, so Node's ESM loader never sees
+  // them. See scripts/build.mjs.
+  "compilerOptions": {
+    "target": "es2023",
+    // DOM is here for one reason: the ported core must typecheck exactly as it does
+    // upstream, and scouter-web compiles it with DOM in lib. Without it `res.json()` is
+    // `unknown` rather than `any` and rcApi.ts fails — an error about *this* config, not
+    // about that code. src/core/ is never edited to suit us; the config bends instead.
+    "lib": ["ES2023", "DOM"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+    "erasableSyntaxOnly": true
+  },
+  "include": ["src", "scripts"]
+}
