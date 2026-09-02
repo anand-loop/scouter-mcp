@@ -16,6 +16,7 @@ import {
   monthWindow,
   type MonthKey,
 } from './core/domain/months'
+import { DEFAULT_SITE_TYPES, type SiteTypeId } from './core/domain/siteTypes'
 import { isNightCount, normalizeDays } from './core/domain/stay'
 import type { StayResult, WatchSettings } from './core/domain/types'
 import { ALL_DAYS } from './core/domain/days'
@@ -102,7 +103,14 @@ function monthsBetween(start: Date, end: Date): MonthKey[] {
  * for September pull exactly the same bytes. The extra dates are trimmed back off the
  * results by `withinRange` before anything is grouped or reported.
  */
-export function normalizeWhen(when: WhenArg = {}, today: Date = todayFn()): NormalizedWhen {
+export function normalizeWhen(
+  when: WhenArg = {},
+  today: Date = todayFn(),
+  // The one part of a WatchSettings that isn't about time. It rides along rather than being
+  // stitched on afterwards so a settings object is never built half-formed — resolving the
+  // slugs an agent sent into these ids is siteTypes.ts's job, not this module's.
+  siteTypes: SiteTypeId[] = [...DEFAULT_SITE_TYPES],
+): NormalizedWhen {
   const arrivalDays = daysOf(when)
   const nights = nightsOf(when)
 
@@ -117,7 +125,7 @@ export function normalizeWhen(when: WhenArg = {}, today: Date = todayFn()): Norm
     if (when.months.length === 0) throw new WhenError('months must name at least one month.')
     const monthKeys = [...new Set(when.months)].sort()
     return {
-      settings: { monthKeys, arrivalDays, nights },
+      settings: { monthKeys, arrivalDays, nights, siteTypes },
       // The window is the months themselves, so the filter has nothing left to remove.
       from: isoDate(monthStart(monthKeys[0])),
       to: isoDate(monthEnd(monthKeys[monthKeys.length - 1])),
@@ -140,7 +148,7 @@ export function normalizeWhen(when: WhenArg = {}, today: Date = todayFn()): Norm
   if (to < from) throw new WhenError(`to (${isoDate(to)}) falls before from (${isoDate(from)}).`)
 
   return {
-    settings: { monthKeys: monthsBetween(from, to), arrivalDays, nights },
+    settings: { monthKeys: monthsBetween(from, to), arrivalDays, nights, siteTypes },
     from: isoDate(from),
     to: isoDate(to),
     byMonth: false,

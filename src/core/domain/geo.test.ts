@@ -2,15 +2,18 @@ import { describe, expect, it } from 'vitest'
 import type { PlaceDto } from '../api/rcApi'
 import {
   buildNearbyParams,
+  facilityLocation,
   formatMiles,
   type GeoPlace,
   haversineMiles,
   nearestWithin,
   parseFacilityParams,
   parseNearbyParams,
+  radiusBounds,
   toGeoPlace,
   toLatLng,
 } from './geo'
+import { DEFAULT_SITE_TYPES } from './siteTypes'
 import type { Facility } from './types'
 
 const SF = { lat: 37.7749, lng: -122.4194 }
@@ -161,6 +164,7 @@ describe('parseNearbyParams', () => {
       monthKeys: ['2026-08', '2026-09'],
       arrivalDays: [5, 6],
       nights: 2,
+      siteTypes: DEFAULT_SITE_TYPES,
     })
   })
 
@@ -249,8 +253,37 @@ describe('parseNearbyParams', () => {
       monthKeys: ['2026-09', '2026-10'],
       arrivalDays: [1, 6],
       nights: 3,
+      siteTypes: [1, 2],
     }
     expect(parseNearbyParams(new URLSearchParams(buildNearbyParams(req)), AUG_22)).toEqual(req)
+  })
+
+  // Every link written before the site-type filter existed omits `types`. Those links have
+  // to keep meaning what they meant, which is why an absent parameter is the default rather
+  // than an empty set.
+  it('gives a link with no site types the default set', () => {
+    const parsed = parseNearbyParams(
+      new URLSearchParams('lat=37&lng=-122&radius=25&months=2026-09&arrive=5&nights=2'),
+      AUG_22,
+    )
+    expect(parsed?.siteTypes).toEqual(DEFAULT_SITE_TYPES)
+  })
+
+  // An empty one is a choice, not an omission — the user turned everything off.
+  it('keeps an explicitly empty site-type set empty', () => {
+    const parsed = parseNearbyParams(
+      new URLSearchParams('lat=37&lng=-122&radius=25&months=2026-09&arrive=5&nights=2&types='),
+      AUG_22,
+    )
+    expect(parsed?.siteTypes).toEqual([])
+  })
+
+  it('drops site types it has no label for', () => {
+    const parsed = parseNearbyParams(
+      new URLSearchParams('lat=37&lng=-122&radius=25&months=2026-09&types=1,999,2'),
+      AUG_22,
+    )
+    expect(parsed?.siteTypes).toEqual([1, 2])
   })
 })
 
@@ -264,6 +297,7 @@ describe('parseFacilityParams', () => {
       monthKeys: ['2026-09'],
       arrivalDays: [6],
       nights: 1,
+      siteTypes: DEFAULT_SITE_TYPES,
     })
   })
 
@@ -310,5 +344,137 @@ describe('toLatLng', () => {
     expect(toLatLng(Number.POSITIVE_INFINITY, -122)).toBeNull()
     expect(toLatLng(91, -122)).toBeNull()
     expect(toLatLng(37, 181)).toBeNull()
+  })
+})
+
+describe('radiusBounds', () => {
+  it('reaches the radius at every edge', () => {
+    const [sw, ne] = radiusBounds(SF, 50)
+    expect(haversineMiles(SF, { lat: sw.lat, lng: SF.lng })).toBeCloseTo(50, 1)
+    expect(haversineMiles(SF, { lat: ne.lat, lng: SF.lng })).toBeCloseTo(50, 1)
+    expect(haversineMiles(SF, { lat: SF.lat, lng: sw.lng })).toBeGreaterThanOrEqual(50)
+    expect(haversineMiles(SF, { lat: SF.lat, lng: ne.lng })).toBeGreaterThanOrEqual(50)
+  })
+
+  // The box has to contain the circle, not merely touch it, or the map frames a ring whose
+  // east and west edges sit outside the viewport.
+  it('contains the circle rather than cutting its corners', () => {
+    const [sw, ne] = radiusBounds(SF, 25)
+    for (const bearing of [0, 30, 45, 60, 90, 135, 180, 225, 270, 315]) {
+      const rad = (bearing * Math.PI) / 180
+      const latSpan = (25 / 3958.8) * (180 / Math.PI)
+      const point = {
+        lat: SF.lat + latSpan * Math.cos(rad),
+        lng: SF.lng + (latSpan * Math.sin(rad)) / Math.cos((SF.lat * Math.PI) / 180),
+      }
+      expect(point.lat).toBeGreaterThanOrEqual(sw.lat)
+      expect(point.lat).toBeLessThanOrEqual(ne.lat)
+      expect(point.lng).toBeGreaterThanOrEqual(sw.lng)
+      expect(point.lng).toBeLessThanOrEqual(ne.lng)
+    }
+  })
+
+  it('widens in longitude with latitude, since degrees narrow towards the poles', () => {
+    const span = (p: { lat: number; lng: number }) => {
+      const [sw, ne] = radiusBounds(p, 50)
+      return ne.lng - sw.lng
+    }
+    expect(span({ lat: 41.7, lng: -124 })).toBeGreaterThan(span({ lat: 32.5, lng: -117 }))
+    // At the equator the two spans very nearly meet — the box is still measured at its own
+    // top edge rather than at the centre, so it stays a hair wider than tall.
+    const latSpan = (50 / 3958.8) * (180 / Math.PI) * 2
+    expect(span({ lat: 0, lng: 0 })).toBeGreaterThan(latSpan)
+    expect(span({ lat: 0, lng: 0 })).toBeCloseTo(latSpan, 3)
+  })
+
+  it('collapses to the centre for a zero radius', () => {
+    expect(radiusBounds(SF, 0)).toEqual([SF, SF])
+  })
+
+  it('clamps at the pole rather than wrapping past it', () => {
+    const [sw, ne] = radiusBounds({ lat: 89.9, lng: 10 }, 200)
+    expect(ne.lat).toBe(90)
+    expect(sw.lat).toBeGreaterThan(85)
+    expect(ne.lng - sw.lng).toBeLessThanOrEqual(360)
+  })
+})
+
+describe('facilityLocation', () => {
+  // China Camp SP: the park and two of its campgrounds are in San Rafael, the other two
+  // claim to be in Riverside County, 388 mi away. Averaging all four put the park's pin
+  // near Coalinga, where none of them are.
+  const chinaCamp = { lat: 38.00171, lng: -122.46261 }
+  const weberPoint = { lat: 38.0046446, lng: -122.4708076 }
+  const bogus = { lat: 33.9189038, lng: -117.6988183 }
+
+  it('keeps a campground’s own coordinates when they sit inside its park', () => {
+    expect(facilityLocation(weberPoint, chinaCamp)).toEqual(weberPoint)
+  })
+
+  it('rejects coordinates that cannot belong to the park, and plots the park instead', () => {
+    expect(facilityLocation(bogus, chinaCamp)).toEqual(chinaCamp)
+  })
+
+  // Lake Oroville SRA reports 121.4456 rather than -121.4456, landing in Mongolia.
+  it('rejects a dropped minus sign rather than trying to repair it', () => {
+    const park = { lat: 39.5343, lng: -121.467 }
+    expect(facilityLocation({ lat: 39.5242, lng: 121.4456 }, park)).toEqual(park)
+  })
+
+  // Auburn SRA's Mineral Bar is a genuine 14 mi from the park's own point.
+  it('tolerates a genuinely large park', () => {
+    const auburn = { lat: 38.9158, lng: -121.041 }
+    const mineralBar = { lat: 39.1008, lng: -120.9239 }
+    expect(haversineMiles(mineralBar, auburn)).toBeGreaterThan(14)
+    expect(facilityLocation(mineralBar, auburn)).toEqual(mineralBar)
+  })
+
+  it('falls back to the park when the grid reported nothing', () => {
+    expect(facilityLocation(undefined, chinaCamp)).toEqual(chinaCamp)
+  })
+
+  it('has nothing to check against without a park, so takes the campground at its word', () => {
+    expect(facilityLocation(bogus, undefined)).toEqual(bogus)
+  })
+
+  it('is undefined when neither source has coordinates', () => {
+    expect(facilityLocation(undefined, undefined)).toBeUndefined()
+  })
+})
+
+// Panning the results map re-searches by rewriting the URL, so everything the user chose on
+// the home screen has to survive a change of centre untouched — the whole point is the same
+// search somewhere else.
+describe('re-centring a search', () => {
+  it('moves the centre and its name, and changes nothing else', () => {
+    const original = parseNearbyParams(
+      new URLSearchParams(
+        'lat=37.7749&lng=-122.4194&radius=25&label=San%20Francisco&months=2026-09,2026-10&arrive=5,6&nights=2',
+      ),
+    )
+    expect(original).not.toBeNull()
+    const moved = parseNearbyParams(
+      new URLSearchParams(
+        buildNearbyParams({ ...original!, lat: LA.lat, lng: LA.lng, label: 'Los Angeles' }),
+      ),
+    )
+    expect(moved).toEqual({
+      ...original!,
+      lat: Number(LA.lat.toFixed(5)),
+      lng: Number(LA.lng.toFixed(5)),
+      label: 'Los Angeles',
+    })
+  })
+
+  it('searches an unnameable spot rather than refusing to search it', () => {
+    const original = parseNearbyParams(
+      new URLSearchParams('lat=37.7749&lng=-122.4194&radius=15&label=Somewhere&months=2026-09'),
+    )
+    const moved = parseNearbyParams(
+      new URLSearchParams(buildNearbyParams({ ...original!, label: '' })),
+    )
+    expect(moved?.label).toBe('')
+    expect(moved?.radiusMiles).toBe(15)
+    expect(moved?.monthKeys).toEqual(original!.monthKeys)
   })
 })

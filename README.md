@@ -23,7 +23,7 @@ claude mcp add scouter -- node "$PWD/dist/index.js"
 | `find_availability` | seconds | **What's open?** |
 | `get_sites` | ~1 s | Which sites, exactly? |
 
-Two argument shapes are shared, so the vocabulary is learned once.
+Three argument shapes are shared, so the vocabulary is learned once.
 
 **`where`** is an area or one campground — the same two answers the app's picker offers.
 `{ place, radiusMiles }`, `{ lat, lng, radiusMiles }`, or `{ facilityId }`. A radius around a
@@ -42,7 +42,15 @@ is optional, because the question an agent usually carries is open-ended:
   narrower search, so an unstated stay length should give the broadest true answer.
 - `arrivalDays` defaults to every day. Monday=1 … Sunday=7.
 
-So `find_availability({ place: "Big Sur" }, { arrivalDays: [6] })` is a complete question.
+**`siteTypes`** is what kind of site counts as a match, named rather than numbered:
+`standard`, `group`, `lodging`, `hike-in`, `rv`, `equestrian`, `environmental`, `day-use`.
+Omitted, it means **everything you can sleep in** — day use has to be asked for, because
+"Weber Point Picnic Area, 1 site free" is not an answer to *where can I camp?*, and an agent
+that can't tell the two apart will report it as one. `get_sites` takes it too and defaults
+identically, so a drill-down can never contradict the count that sent the agent there.
+
+So `find_availability({ place: "Big Sur", arrivalDays: [6] })` is a complete question, and
+`find_availability({ place: "Big Sur", siteTypes: ["hike-in"] })` is a narrower one.
 
 **A stay is one site for the whole trip.** A two-night Saturday arrival matches only when a
 single site is free on Saturday *and* Sunday — "something was free each night" would count
@@ -59,6 +67,11 @@ site lists, hundreds of KB, most of it empty. `get_sites` fetches the labels for
 campground and date once the agent knows which it wants. A test asserts that no site label
 can escape the summary.
 
+Each campground also carries `tags` — "Hike-in only", "RV up to 30 ft" — derived from the
+categories its units actually report. They describe the *campground*, not the search: they
+are read from every unit including the kinds the filter excluded, so "will a trailer fit?" is
+answered without a second scan.
+
 Campgrounds nest under their park for the same reason the web UI does it: a radius scan
 routinely returns four campgrounds from one park, and repeating the park name on four
 consecutive entries spends tokens restating the entry above.
@@ -74,9 +87,15 @@ npm run sync:core    # re-copy from ../scouter-web (or $SCOUTER_WEB)
 npm run check:core   # fail if src/core/ was edited, or scouter-web has moved on
 ```
 
-The upstream test suites come with the code — ~200 assertions pinning the availability rules
+The upstream test suites come with the code — ~260 assertions pinning the availability rules
 on this side too — so a botched port fails `npm test` rather than quietly returning different
 dates from the web app.
+
+The port is the scan pipeline and nothing else: no `src/store/` (an MCP scan is fully
+specified by its arguments) and no label modules, since an agent wants fields rather than
+"Fri & Sat arrivals · 2 nights". `domain/whenLabel.ts` is the one exception, and not for its
+labels — `siteTypes.ts` imports `joinWithAmpersand` from it, and copying the module beats
+rewriting an import in a tree that has to stay byte-identical.
 
 Two things bend around the port rather than the port bending around them. `tsconfig.json`
 keeps `lib: DOM` even though this is a Node project, because the core must typecheck exactly
@@ -110,6 +129,12 @@ disagree about what a result means.
   21 slices with no error, and the missing dates read as *booked* rather than unknown.
   `WINDOW_DAYS` is 21 upstream for exactly this reason and must not be raised without
   re-measuring; the ported `availability.test.ts` pins it.
+- **Day-use areas are not campsites.** They are excluded by default and counted only when
+  `siteTypes` names `day-use`. The filter is applied per unit *before* multi-night spans are
+  intersected, so a two-night stay is never reported via a site the caller excluded.
+- A campground's coordinates are taken from the grid response, but discarded when they land
+  more than 25 mi from their own park — a handful of catalog rows drop a minus sign or point
+  at the wrong county, and a park's position is the mean of its campgrounds.
 - Booking URLs are campground-level; the API cannot preselect a night, so dates are reported
   rather than made to look selectable.
 - A scan is capped at the 40 nearest campgrounds (~10 MB, ~10 s). `found` reports how many

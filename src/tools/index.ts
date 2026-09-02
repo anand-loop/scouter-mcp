@@ -18,9 +18,10 @@ import { isNightCount } from '../core/domain/stay'
 import type { CampgroundAvailability } from '../core/domain/types'
 import { geocode, regionLabel } from '../node/geocode'
 import { normalizeWhen, WhenError } from '../search'
-import { bookingUrl, summarize } from '../shape'
+import { bookingUrl, summarize, tagsFor } from '../shape'
+import { resolveSiteTypes, siteTypeSlugs } from '../siteTypes'
 import { coverageFor, nearbyFor, resolveWhere, WhereError } from '../where'
-import { maxCampgroundsShape, whenShape, whereShape } from './schemas'
+import { maxCampgroundsShape, siteTypesShape, whenShape, whereShape } from './schemas'
 
 /** JSON in the content block. MCP clients read text; an agent reads JSON out of it fine. */
 function json(value: unknown): CallToolResult {
@@ -154,13 +155,15 @@ export function registerTools(server: McpServer): void {
       title: 'Estimate what a search will cost',
       description:
         'How many campgrounds and arrival dates a find_availability call would cover, and roughly how long it would take and how much data it would pull. Catalog-only, so it costs nothing. Worth calling before a wide radius over several months.',
-      inputSchema: { ...whereShape, ...whenShape, ...maxCampgroundsShape },
+      inputSchema: { ...whereShape, ...whenShape, ...maxCampgroundsShape, ...siteTypesShape },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async (args, extra) => {
       try {
         const where = await resolveWhere(args, extra.signal)
-        const when = normalizeWhen(args, today())
+        // The site-type filter costs nothing here — it narrows what counts as a match, not
+        // what is fetched — but it is echoed back so the estimate names the same search.
+        const when = normalizeWhen(args, today(), resolveSiteTypes(args.siteTypes))
         const { targets, found, capped } = await coverageFor(where, args.maxCampgrounds)
         const dates = targetDates(today(), when.settings.monthKeys, when.settings.arrivalDays)
         const cost = estimateScan(targets.length, when.settings.monthKeys, today(), when.settings.nights)
@@ -170,6 +173,7 @@ export function registerTools(server: McpServer): void {
           to: when.to,
           nights: when.settings.nights,
           arrivalDays: when.settings.arrivalDays,
+          siteTypes: siteTypeSlugs(when.settings.siteTypes),
           campgrounds: targets.length,
           found,
           truncated: capped
@@ -190,14 +194,14 @@ export function registerTools(server: McpServer): void {
     {
       title: 'Find open campsites',
       description:
-        "The main tool. Scans campgrounds for arrival dates where one site is free for the whole stay — not merely 'something was free each night', which counts stays nobody can book. Returns open dates and per-campground counts, grouped under their park; nextOpen is the soonest. Site numbers are deliberately omitted: call get_sites once you know which campground and date you want. A wide radius over several months takes ~10 seconds.",
-      inputSchema: { ...whereShape, ...whenShape, ...maxCampgroundsShape },
+        "The main tool. Scans campgrounds for arrival dates where one site is free for the whole stay — not merely 'something was free each night', which counts stays nobody can book. Returns open dates and per-campground counts, grouped under their park; nextOpen is the soonest. Day-use areas are not counted as campsites unless siteTypes asks for them. Site numbers are deliberately omitted: call get_sites once you know which campground and date you want. A wide radius over several months takes ~10 seconds.",
+      inputSchema: { ...whereShape, ...whenShape, ...maxCampgroundsShape, ...siteTypesShape },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async (args, extra) => {
       try {
         const where = await resolveWhere(args, extra.signal)
-        const when = normalizeWhen(args, today())
+        const when = normalizeWhen(args, today(), resolveSiteTypes(args.siteTypes))
         const { targets, found, capped } = await coverageFor(where, args.maxCampgrounds)
 
         if (targets.length === 0) {
@@ -257,12 +261,16 @@ export function registerTools(server: McpServer): void {
                 monthKeys: when.settings.monthKeys,
                 arrivalDays: when.settings.arrivalDays,
                 nights: when.settings.nights,
+                // Without this the link would open the web app on a wider search than the
+                // one being reported — the same dates, but counting day-use areas.
+                siteTypes: when.settings.siteTypes,
               })
             : buildFacilityParams({
                 facilityId: where.facility.facilityId,
                 monthKeys: when.settings.monthKeys,
                 arrivalDays: when.settings.arrivalDays,
                 nights: when.settings.nights,
+                siteTypes: when.settings.siteTypes,
               })
 
         return json(
@@ -284,15 +292,16 @@ export function registerTools(server: McpServer): void {
     {
       title: 'List the sites free on a date',
       description:
-        'The drill-down from find_availability: which specific sites are free at one campground for a stay starting on one date. Pass the same nights the search used — a site free for one night need not be free for two.',
+        'The drill-down from find_availability: which specific sites are free at one campground for a stay starting on one date. Pass the same nights and siteTypes the search used — a site free for one night need not be free for two, and a different filter gives a different count.',
       inputSchema: {
         facilityId: z.number().int().describe('From find_availability or find_campground.'),
         date: z.string().describe('Arrival date, YYYY-MM-DD.'),
         nights: z.number().int().optional().describe('Consecutive nights, 1-3. Default 1.'),
+        ...siteTypesShape,
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    async ({ facilityId, date, nights }, extra) => {
+    async ({ facilityId, date, nights, siteTypes }, extra) => {
       try {
         const where = await resolveWhere({ facilityId }, extra.signal)
         if (where.kind !== 'campground') throw new WhereError('Expected a campground.')
@@ -300,7 +309,14 @@ export function registerTools(server: McpServer): void {
         if (!isNightCount(stay)) throw new WhenError(`nights must be 1, 2 or 3, got ${nights}`)
 
         // One month, one campground: the scan is bounded to the date being asked about.
-        const when = normalizeWhen({ from: date, to: date, nights: stay }, today())
+        // The filter defaults exactly as find_availability's does — a drill-down that
+        // counted day-use sites the summary had excluded would contradict the number that
+        // sent the agent here.
+        const when = normalizeWhen(
+          { from: date, to: date, nights: stay },
+          today(),
+          resolveSiteTypes(siteTypes),
+        )
         const result = await availabilityFor(where.facility, when.settings, today(), extra.signal)
         if (result.error) throw new Error(`${where.facility.name}: ${result.error}`)
 
@@ -315,12 +331,17 @@ export function registerTools(server: McpServer): void {
         // would report the wrong day for anyone east of Greenwich.
         const checkout = addDays(new Date(`${date}T00:00:00`), stay)
 
+        const tags = tagsFor(result)
+
         return json({
           campground: where.facility.name,
           park: where.facility.parkName,
           facilityId,
+          ...(tags.length > 0 ? { tags } : {}),
+          ...(result.maxVehicleLength ? { maxVehicleLength: result.maxVehicleLength } : {}),
           date,
           nights: stay,
+          siteTypes: siteTypeSlugs(when.settings.siteTypes),
           checkout: isoDate(checkout),
           siteCount: match.freeSites.length,
           sites: match.freeSites.map((s) => ({ unitId: s.unitId, site: s.label })),

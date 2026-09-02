@@ -7,6 +7,12 @@ import type { LatLng } from './geo'
 import { type CampgroundGroup, groupByCampground } from './nights'
 import type { CampgroundAvailability, SavedCampground } from './types'
 
+/** A campground that was checked and had nothing open. */
+export interface ClosedCampground {
+  campground: SavedCampground
+  distanceMiles?: number
+}
+
 /** A park and the rows or groups belonging to it, for a park-headed list section. */
 export interface ParkBucket<T> {
   placeId: number
@@ -58,8 +64,12 @@ export interface ParkGroup {
   location: LatLng
   /** Campgrounds here with something open, best-offering first. */
   open: CampgroundGroup[]
-  /** Campgrounds here that were checked and had nothing — the recessive pins. */
-  closed: number
+  /**
+   * Campgrounds here that were checked and had nothing. Carried in full rather than counted,
+   * because they are still worth saving for a later search — which is the one thing the
+   * sheet can offer for a park that has nothing to offer.
+   */
+  closed: ClosedCampground[]
 }
 
 /**
@@ -78,13 +88,18 @@ export function groupByPark(
     openByPark.set(group.campground.placeId, list)
   }
 
-  const parks = new Map<number, { name: string; points: LatLng[]; closed: number }>()
+  const parks = new Map<number, { name: string; points: LatLng[]; closed: ClosedCampground[] }>()
   for (const item of slots) {
     if (!item?.location) continue
     const { placeId, parkName } = item.campground
-    const park = parks.get(placeId) ?? { name: parkName, points: [], closed: 0 }
+    const park = parks.get(placeId) ?? { name: parkName, points: [], closed: [] }
     park.points.push(item.location)
-    if (!item.results.some((r) => r.freeSites.length > 0)) park.closed++
+    if (!item.results.some((r) => r.freeSites.length > 0)) {
+      park.closed.push({
+        campground: item.campground,
+        ...(item.distanceMiles !== undefined ? { distanceMiles: item.distanceMiles } : {}),
+      })
+    }
     parks.set(placeId, park)
   }
 

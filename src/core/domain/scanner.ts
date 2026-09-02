@@ -5,7 +5,7 @@
 // is the shared request semaphore in api/rcApi.ts.
 import { availabilityFor } from './availability'
 import { today as todayFn } from './dates'
-import type { LatLng } from './geo'
+import { facilityLocation, type LatLng } from './geo'
 import type { CampgroundAvailability, SavedCampground, WatchSettings } from './types'
 
 /** How many campgrounds are worked on at once (each expands to ~4-7 grid requests). */
@@ -60,13 +60,13 @@ export function decorate(
   result: CampgroundAvailability,
   target: ScanTarget,
 ): CampgroundAvailability {
+  // availabilityFor sets `location` from the grid when it can; the park is both the backstop
+  // for a grid that reported nothing and the reference that catches one reporting nonsense.
+  const location = facilityLocation(result.location, target.fallbackLocation)
   return {
     ...result,
     ...(target.distanceMiles !== undefined ? { distanceMiles: target.distanceMiles } : {}),
-    // availabilityFor sets `location` from the grid when it can; the park is the backstop.
-    ...(result.location ?? target.fallbackLocation
-      ? { location: result.location ?? target.fallbackLocation }
-      : {}),
+    ...(location ? { location } : {}),
   }
 }
 

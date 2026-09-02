@@ -20,10 +20,10 @@ import { preloadCatalog } from './core/domain/catalog'
 import { registerTools } from './tools/index'
 
 const server = new McpServer(
-  { name: 'scouter', version: '0.1.0' },
+  { name: 'scouter', version: '0.2.0' },
   {
     instructions:
-      'Finds open campsites in California state parks through ReserveCalifornia. A "stay" means one site free for every night of the trip, which is what can actually be booked. Start with find_availability — it accepts a place name directly and defaults to any arrival day, one night, and the next four months. Call get_sites afterwards for the actual site numbers, and estimate_search first if the radius is wide and the window long.',
+      'Finds open campsites in California state parks through ReserveCalifornia. A "stay" means one site free for every night of the trip, which is what can actually be booked. Start with find_availability — it accepts a place name directly and defaults to any arrival day, one night, the next four months, and every kind of site you can sleep in (day-use areas are excluded unless siteTypes names them). Call get_sites afterwards for the actual site numbers, and estimate_search first if the radius is wide and the window long.',
   },
 )
 

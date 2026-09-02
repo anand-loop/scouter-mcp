@@ -93,6 +93,12 @@ describe('decorate', () => {
     expect(r.location).toEqual(park)
   })
 
+  it('discards coordinates too far from the park to be that park’s', () => {
+    const elsewhere = { lat: 33.92, lng: -117.7 }
+    const r = decorate({ ...base, location: elsewhere }, { campground, fallbackLocation: park })
+    expect(r.location).toEqual(park)
+  })
+
   it('leaves location unset when neither source has one', () => {
     expect(decorate(base, { campground }).location).toBeUndefined()
     expect('location' in decorate(base, { campground })).toBe(false)

@@ -88,6 +88,16 @@ export async function facilityById(facilityId: number): Promise<Facility | null>
 }
 
 /**
+ * A park's coordinates, or null when it has none usable. The reference `decorate` checks a
+ * campground's own reported position against.
+ */
+export async function placeLocation(placeId: number): Promise<LatLng | null> {
+  const { placeById } = await ensureLoaded()
+  const place = placeById.get(placeId)
+  return place ? { lat: place.lat, lng: place.lng } : null
+}
+
+/**
  * Distance from `center` to each campground's park, keyed by facility id.
  *
  * Unlike `facilitiesNear` this filters nothing — the Where picker searches by name and then

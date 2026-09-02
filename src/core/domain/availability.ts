@@ -14,6 +14,7 @@ import {
   today as todayFn,
 } from './dates'
 import { type MonthKey, monthRanges } from './months'
+import { isEverySiteType, type SiteTypeId } from './siteTypes'
 import { isWeekday } from './stay'
 import type {
   CampgroundAvailability,
@@ -106,16 +107,49 @@ export function windows(start: Date, end: Date, size: number): Array<[Date, Date
 }
 
 /**
+ * What kinds of site a campground has, and the longest vehicle any of them takes.
+ *
+ * Read across every window's response because a campground can be partly out of season, and
+ * a unit absent from one window may be present in another. Web-bookable only, since a unit
+ * nobody can reserve is not a fact about what you can book here.
+ */
+function describeUnits(responses: GridResponse[]): {
+  siteTypes: SiteTypeId[]
+  maxVehicleLength: number
+} {
+  const types = new Set<SiteTypeId>()
+  let longest = 0
+  for (const response of responses) {
+    for (const unit of Object.values(response.Facility?.Units ?? {})) {
+      if (!unit.AllowWebBooking) continue
+      if (typeof unit.UnitCategoryId === 'number') types.add(unit.UnitCategoryId)
+      if (typeof unit.VehicleLength === 'number') longest = Math.max(longest, unit.VehicleLength)
+    }
+  }
+  return { siteTypes: [...types].sort((a, b) => a - b), maxVehicleLength: longest }
+}
+
+/**
  * Bookable units free per date in one grid response ("any unit free"). Pure — unit tested.
  *
  * The grid can return multiple slices for the same unit+date (e.g. per rate/occupancy option),
  * so each unit is counted at most once per date.
+ *
+ * `allowed` is the site-type filter, and this is the only correct place to apply it. A stay
+ * is a *unit* free on every night, and `sitesFreeForSpan` establishes that by intersecting
+ * these lists on `unitId`. Filtering the finished `StayResult.freeSites` instead would
+ * compile, read the same, and quietly report two-night stays that only ever spanned via a
+ * unit the user had excluded. Omit it and nothing is filtered.
  */
-export function freeSitesByDate(response: GridResponse): Map<IsoDate, FreeSite[]> {
+export function freeSitesByDate(
+  response: GridResponse,
+  allowed?: ReadonlySet<SiteTypeId>,
+): Map<IsoDate, FreeSite[]> {
   const map = new Map<IsoDate, FreeSite[]>()
   const units = response.Facility?.Units ?? {}
   for (const unit of Object.values(units)) {
     if (!unit.AllowWebBooking) continue
+    if (allowed && !allowed.has(unit.UnitCategoryId)) continue
     const label = firstNonBlank(unit.ShortName, unit.Name, String(unit.UnitId))
     const freeDates = new Set<IsoDate>()
     for (const slice of Object.values(unit.Slices ?? {})) {
@@ -198,8 +232,14 @@ export async function availabilityFor(
         getGrid(campground.facilityId, requestDate(start), requestDate(stop), signal),
       ),
     )
+    // Undefined rather than a full set when nothing is excluded, so the common search does
+    // no per-unit lookups at all.
+    const allowed =
+      settings.siteTypes && !isEverySiteType(settings.siteTypes)
+        ? new Set(settings.siteTypes)
+        : undefined
     for (const response of responses) {
-      for (const [date, sites] of freeSitesByDate(response)) {
+      for (const [date, sites] of freeSitesByDate(response, allowed)) {
         const list = freeByDate.get(date) ?? []
         list.push(...sites)
         freeByDate.set(date, list)
@@ -212,6 +252,10 @@ export async function availabilityFor(
       date,
       freeSites: sitesFreeForSpan(freeByDate, date, settings.nights).sort(siteOrder),
     }))
+    // What this campground *is*, read from every unit rather than the ones that survived the
+    // filter: its tags describe the campground, not the search that happened to find it.
+    const { siteTypes, maxVehicleLength } = describeUnits(responses)
+
     // The grid carries the campground's own coordinates, which beat the park centroid it
     // would otherwise be plotted at — by up to a couple of miles.
     let location: LatLng | undefined
@@ -222,7 +266,13 @@ export async function availabilityFor(
         break
       }
     }
-    return { campground, results, ...(location ? { location } : {}) }
+    return {
+      campground,
+      results,
+      siteTypes,
+      ...(maxVehicleLength ? { maxVehicleLength } : {}),
+      ...(location ? { location } : {}),
+    }
   } catch (e) {
     return {
       campground,

@@ -1,4 +1,5 @@
 import type { MonthKey } from './months'
+import type { SiteTypeId } from './siteTypes'
 import type { StaySelection } from './stay'
 
 // Domain models — ports of com.scouter.domain.Models and data.prefs.SavedCampground.
@@ -15,6 +16,12 @@ export interface SavedCampground {
 export interface WatchSettings extends StaySelection {
   /** Calendar months to search, "YYYY-MM", ascending. */
   monthKeys: MonthKey[]
+  /**
+   * Which kinds of site count as a match. Here rather than on StaySelection, which would
+   * drag it through the two generations of stay migration for no reason — a site type is
+   * not part of "when", it is part of "what".
+   */
+  siteTypes: SiteTypeId[]
 }
 
 /** A searchable campground from the catalog. */
@@ -50,6 +57,10 @@ export interface CampgroundAvailability {
   campground: SavedCampground
   results: StayResult[]
   error?: string
+  /** Every kind of site here, filter or no filter — what the campground is. */
+  siteTypes?: SiteTypeId[]
+  /** Longest vehicle any site here takes, in feet. Absent when none is recorded. */
+  maxVehicleLength?: number
   /** Set only by a nearby scan — distance from the searched location. */
   distanceMiles?: number
   /** Where to plot this campground: its own coordinates, else its park's. */

@@ -50,6 +50,17 @@ export interface GridUnit {
   ShortName: string
   IsAda: boolean
   AllowWebBooking: boolean
+  /**
+   * What kind of site this is — see domain/siteTypes.ts for the vocabulary. Already on the
+   * wire for every unit; declaring it costs nothing and no change to the request.
+   *
+   * Passing a category in the grid POST deliberately isn't done: the server returns every
+   * unit either way and only flips each one's `IsFiltered`, so it would buy no bandwidth
+   * and split the filtering rule across two places.
+   */
+  UnitCategoryId: number
+  /** Longest vehicle the site takes, in feet. 0 where none is recorded. */
+  VehicleLength?: number
   Slices: Record<string, GridSlice>
 }
 

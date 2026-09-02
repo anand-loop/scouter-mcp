@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_SITE_TYPES } from './core/domain/siteTypes'
 import { normalizeWhen, WhenError, withinRange } from './search'
 import type { StayResult } from './core/domain/types'
 
@@ -146,5 +147,19 @@ describe('withinRange', () => {
     const w = normalizeWhen({ months: ['2026-09'] }, AUG_30)
     const all = results('2026-09-01', '2026-09-30')
     expect(withinRange(all, w)).toEqual(all)
+  })
+})
+
+describe('site types', () => {
+  // Not a time field, but it is the one part of a WatchSettings that isn't — and settings
+  // that came out of here half-formed would fail at the scan rather than at the argument.
+  it('defaults to everything you can sleep in', () => {
+    expect(normalizeWhen({}, AUG_30).settings.siteTypes).toEqual(DEFAULT_SITE_TYPES)
+    expect(normalizeWhen({}, AUG_30).settings.siteTypes).not.toContain(7)
+  })
+
+  it('carries the caller’s set through both forms of when', () => {
+    expect(normalizeWhen({ months: ['2026-09'] }, AUG_30, [1014]).settings.siteTypes).toEqual([1014])
+    expect(normalizeWhen({ from: '2026-09-01' }, AUG_30, [1014]).settings.siteTypes).toEqual([1014])
   })
 })

@@ -13,6 +13,11 @@ import {
   monthEnd,
   monthWindow,
 } from './months'
+import {
+  DEFAULT_SITE_TYPES,
+  normalizeSiteTypes,
+  type SiteTypeId,
+} from './siteTypes'
 import { DEFAULT_STAY, normalizeStay, type StaySelection } from './stay'
 import type { Facility } from './types'
 
@@ -46,12 +51,14 @@ export interface NearbyScanRequest extends StaySelection {
   radiusMiles: number
   label: string
   monthKeys: MonthKey[]
+  siteTypes: SiteTypeId[]
 }
 
 /** A scan of one saved campground, as encoded in the /availability query string. */
 export interface FacilityScanRequest extends StaySelection {
   facilityId: number
   monthKeys: MonthKey[]
+  siteTypes: SiteTypeId[]
 }
 
 export const RADIUS_OPTIONS = [5, 10, 15, 25, 50] as const
@@ -69,6 +76,8 @@ export const DEFAULT_RADIUS = 50
 export const SCAN_CAP = 40
 
 const EARTH_RADIUS_MILES = 3958.8
+/** Leaflet's `Circle` takes a radius in metres; every radius here is in miles. */
+export const METERS_PER_MILE = 1609.344
 const MAX_LABEL_LENGTH = 80
 
 const toRadians = (deg: number) => (deg * Math.PI) / 180
@@ -81,6 +90,66 @@ export function haversineMiles(a: LatLng, b: LatLng): number {
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRadians(a.lat)) * Math.cos(toRadians(b.lat)) * Math.sin(dLng / 2) ** 2
   return 2 * EARTH_RADIUS_MILES * Math.asin(Math.min(1, Math.sqrt(h)))
+}
+
+/**
+ * How far a campground may sit from its own park before its reported position is treated as
+ * wrong rather than merely imprecise.
+ *
+ * The grid's per-campground coordinates are usually a genuine improvement on the park
+ * centroid, so they are worth preferring — but a handful of rows are simply false. Measured
+ * across the whole catalog, the honest ones reach 14 mi from their park at the very most
+ * (Auburn SRA really is that long), and the nearest liar is 182 mi out: two rows drop the
+ * longitude's minus sign and land in Asia, six more point at an unrelated county — China
+ * Camp's two campgrounds claim to be in Riverside. 25 mi sits in the middle of that gap,
+ * with room for a park larger than any currently listed.
+ */
+export const MAX_FACILITY_OFFSET_MILES = 25
+
+/**
+ * Where to plot a campground: its own coordinates when they are believable, its park's when
+ * they are not.
+ *
+ * Bad coordinates matter more than they look, because a park's pin is the mean of its
+ * campgrounds — so one row pointing 400 mi away doesn't just misplace itself, it drags the
+ * whole park to a spot where none of its campgrounds are. The false value is discarded
+ * rather than repaired: the sign-flipped rows could be guessed at, but the other six are
+ * wrong in no pattern worth encoding.
+ *
+ * With no park to check against there is nothing to detect, so the campground's own claim
+ * stands.
+ */
+export function facilityLocation(grid?: LatLng, park?: LatLng): LatLng | undefined {
+  if (!grid) return park
+  if (!park) return grid
+  return haversineMiles(grid, park) <= MAX_FACILITY_OFFSET_MILES ? grid : park
+}
+
+/**
+ * The smallest lat/lng box containing a circle of `radiusMiles` around `center`.
+ *
+ * Used to frame the map on the whole search area rather than on the parks that happen to
+ * have been found — a ring running off the viewport edge reads as a rendering fault rather
+ * than as a boundary. Spherical rather than Leaflet's `LatLng.toBounds`, so it stays pure
+ * and testable against `haversineMiles`.
+ *
+ * Longitude degrees shrink towards the poles, so the box is wider in longitude than in
+ * latitude, and more so the further north it sits. Latitude is clamped rather than wrapped:
+ * a circle overlapping a pole has no meaningful box, and no California search comes close.
+ */
+export function radiusBounds(center: LatLng, radiusMiles: number): [LatLng, LatLng] {
+  const latSpan = (radiusMiles / EARTH_RADIUS_MILES) * (180 / Math.PI)
+  const south = Math.max(-90, center.lat - latSpan)
+  const north = Math.min(90, center.lat + latSpan)
+  // Measured at whichever edge is furthest from the equator, since that is where the circle
+  // reaches widest in longitude — using the centre's own latitude would clip the box there.
+  const widest = Math.max(Math.abs(south), Math.abs(north))
+  const shrink = Math.cos(toRadians(widest))
+  const lngSpan = shrink < 1e-9 ? 180 : Math.min(180, latSpan / shrink)
+  return [
+    { lat: south, lng: center.lng - lngSpan },
+    { lat: north, lng: center.lng + lngSpan },
+  ]
 }
 
 function clean(s: string | null | undefined): string {
@@ -164,6 +233,23 @@ export function snapRadius(miles: number): number {
   )
 }
 
+/**
+ * Site types from a query string.
+ *
+ * An absent `types` is the whole point of the default: every link written before this
+ * existed keeps meaning what it meant, and a hand-edited one that drops the parameter falls
+ * back rather than searching for nothing. An explicitly empty `types=` is honoured as
+ * empty — the user turned everything off, and the results screen says so.
+ */
+function parseSiteTypes(raw: string | null): SiteTypeId[] {
+  if (raw === null) return [...DEFAULT_SITE_TYPES]
+  const ids = raw
+    .split(',')
+    .map((t) => Number(t.trim()))
+    .filter((n) => Number.isFinite(n))
+  return normalizeSiteTypes(ids)
+}
+
 function parseWeekdays(raw: string | null): number[] | null {
   if (!raw) return null
   const days = raw
@@ -240,6 +326,7 @@ export function parseNearbyParams(
     radiusMiles: radiusRaw === null ? DEFAULT_RADIUS : snapRadius(radiusRaw),
     label: (sp.get('label') ?? '').trim().slice(0, MAX_LABEL_LENGTH),
     monthKeys: parseMonthKeys(sp.get('months'), today),
+    siteTypes: parseSiteTypes(sp.get('types')),
     ...parseStay(sp),
   }
 }
@@ -257,6 +344,7 @@ export function parseFacilityParams(
   return {
     facilityId,
     monthKeys: parseMonthKeys(sp.get('months'), today),
+    siteTypes: parseSiteTypes(sp.get('types')),
     ...parseStay(sp),
   }
 }
@@ -274,6 +362,7 @@ export function buildNearbyParams(req: NearbyScanRequest): string {
     months: req.monthKeys.join(','),
     arrive: req.arrivalDays.join(','),
     nights: String(req.nights),
+    types: req.siteTypes.join(','),
   })
   if (req.label) sp.set('label', req.label)
   return sp.toString()
@@ -286,5 +375,6 @@ export function buildFacilityParams(req: FacilityScanRequest): string {
     months: req.monthKeys.join(','),
     arrive: req.arrivalDays.join(','),
     nights: String(req.nights),
+    types: req.siteTypes.join(','),
   }).toString()
 }

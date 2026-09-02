@@ -1,6 +1,6 @@
 // Ported from com.scouter.domain.AvailabilityUseCaseTest.
 import { describe, expect, it } from 'vitest'
-import type { GridResponse } from '../api/rcApi'
+import type { GridResponse, GridUnit } from '../api/rcApi'
 import {
   freeSitesByDate,
   sitesFreeForSpan,
@@ -78,6 +78,39 @@ describe('the fetch plan', () => {
   })
 })
 
+const unit = (
+  unitId: number,
+  label: string,
+  categoryId: number,
+  dates: string[],
+): GridUnit => ({
+  UnitId: unitId,
+  Name: '',
+  ShortName: label,
+  IsAda: false,
+  AllowWebBooking: true,
+  UnitCategoryId: categoryId,
+  Slices: Object.fromEntries(
+    dates.map((d) => [`${d}T00:00:00`, { Date: d, IsFree: true, IsBlocked: false }]),
+  ),
+})
+
+const grid = (units: GridUnit[]): GridResponse => ({
+  Facility: {
+    FacilityId: 1,
+    Name: '',
+    Units: Object.fromEntries(units.map((u) => [String(u.UnitId), u])),
+  },
+})
+
+/** One standard site and one group site, both free on the same night. */
+const gridWithCategories = () =>
+  grid([unit(1, '53', 1, ['2026-07-03']), unit(2, '54', 2, ['2026-07-03'])])
+
+/** Only the group site is free on both nights, so only it can carry a two-night stay. */
+const twoNightGrid = () =>
+  grid([unit(1, '53', 1, ['2026-07-03']), unit(2, '54', 2, ['2026-07-03', '2026-07-04'])])
+
 describe('freeSitesByDate', () => {
   it('lists bookable free sites per date and ignores non-bookable', () => {
     const response: GridResponse = {
@@ -91,6 +124,7 @@ describe('freeSitesByDate', () => {
             ShortName: '53',
             IsAda: false,
             AllowWebBooking: true,
+            UnitCategoryId: 1,
             Slices: {
               // Two free slices for the SAME date — must be counted once.
               '2026-07-03T00:00:00': { Date: '2026-07-03', IsFree: true, IsBlocked: false },
@@ -104,6 +138,7 @@ describe('freeSitesByDate', () => {
             ShortName: '54',
             IsAda: false,
             AllowWebBooking: true,
+            UnitCategoryId: 2,
             Slices: {
               '2026-07-03T00:00:00': { Date: '2026-07-03', IsFree: true, IsBlocked: false },
             },
@@ -115,6 +150,7 @@ describe('freeSitesByDate', () => {
             ShortName: '55',
             IsAda: false,
             AllowWebBooking: false,
+            UnitCategoryId: 1,
             Slices: {
               '2026-07-03T00:00:00': { Date: '2026-07-03', IsFree: true, IsBlocked: false },
             },
@@ -128,6 +164,28 @@ describe('freeSitesByDate', () => {
     expect(jul3.length).toBe(2)
     expect(new Set(jul3.map((s) => s.label))).toEqual(new Set(['53', '54']))
     expect(byDate.has('2026-07-04')).toBe(false)
+  })
+
+  it('drops units whose category the search excludes', () => {
+    // Unit 1 is a standard campsite, unit 2 a group site; only the first is wanted.
+    const byDate = freeSitesByDate(gridWithCategories(), new Set([1]))
+    expect((byDate.get('2026-07-03') ?? []).map((s) => s.label)).toEqual(['53'])
+  })
+
+  it('filters nothing when given no set', () => {
+    const byDate = freeSitesByDate(gridWithCategories())
+    expect((byDate.get('2026-07-03') ?? []).length).toBe(2)
+  })
+
+  // The reason the filter lives here and not on the finished results. A stay is one *unit*
+  // free on every night, established by intersecting these lists on unitId. Filter the
+  // results instead and this two-night stay survives on a unit the user excluded.
+  it('cannot let an excluded unit span a stay', () => {
+    const unfiltered = freeSitesByDate(twoNightGrid())
+    expect(sitesFreeForSpan(unfiltered, '2026-07-03', 2).map((s) => s.label)).toEqual(['54'])
+
+    const filtered = freeSitesByDate(twoNightGrid(), new Set([1]))
+    expect(sitesFreeForSpan(filtered, '2026-07-03', 2)).toEqual([])
   })
 })
 

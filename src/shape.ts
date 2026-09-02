@@ -10,9 +10,11 @@
 // no site label ever leaves find_availability. get_sites is where labels live.
 import { groupByCampground, hasOpenings } from './core/domain/nights'
 import { byPark } from './core/domain/parks'
+import { siteTypesPhrase, siteTypeTags } from './core/domain/siteTypes'
 import type { CampgroundAvailability } from './core/domain/types'
 import type { NormalizedWhen } from './search'
 import { withinRange } from './search'
+import { siteTypeSlugs, type SiteTypeSlug } from './siteTypes'
 import type { ResolvedWhere } from './where'
 
 export interface OpenDate {
@@ -25,6 +27,15 @@ export interface CampgroundSummary {
   facilityId: number
   name: string
   miles?: number
+  /**
+   * What this campground is — "Hike-in only", "RV up to 30 ft" — from the categories its
+   * units report. Absent when they say nothing worth a tag.
+   *
+   * Describes the campground rather than the search: the tags are read from every unit,
+   * including the kinds this search filtered out, so "can I get a trailer in?" is answered
+   * without a second scan. Omitted when empty rather than sent as [].
+   */
+  tags?: string[]
   open: OpenDate[]
   bookingUrl: string
 }
@@ -41,6 +52,10 @@ export interface AvailabilitySummary {
     where: string
     nights: number
     arrivalDays: number[]
+    /** The filter that ran, in the words the tool takes — always stated, since it defaults. */
+    siteTypes: SiteTypeSlug[]
+    /** The same set in ReserveCalifornia's own names. Absent when it is the default one. */
+    siteTypesPhrase?: string
     from: string
     to: string
     datesChecked: number
@@ -80,14 +95,21 @@ export function summarize(
     parkName: bucket.parkName,
     placeId: bucket.placeId,
     nearestMiles: bucket.nearestMiles === undefined ? undefined : round(bucket.nearestMiles),
-    campgrounds: bucket.items.map<CampgroundSummary>((g) => ({
-      facilityId: g.campground.facilityId,
-      name: g.campground.name,
-      miles: g.distanceMiles === undefined ? undefined : round(g.distanceMiles),
-      // The one transformation that matters: a count, never the FreeSite labels.
-      open: g.nights.map((n) => ({ date: n.date, sites: n.freeSites.length })),
-      bookingUrl: bookingUrl(g.campground.placeId, g.campground.facilityId),
-    })),
+    campgrounds: bucket.items.map<CampgroundSummary>((g) => {
+      // `index` is the group's slot, which is how the campground's own description — its
+      // categories and vehicle length — is reached: groupByCampground carries the openings,
+      // not the facts about the place they are at.
+      const tags = tagsFor(trimmed[g.index])
+      return {
+        facilityId: g.campground.facilityId,
+        name: g.campground.name,
+        miles: g.distanceMiles === undefined ? undefined : round(g.distanceMiles),
+        ...(tags.length > 0 ? { tags } : {}),
+        // The one transformation that matters: a count, never the FreeSite labels.
+        open: g.nights.map((n) => ({ date: n.date, sites: n.freeSites.length })),
+        bookingUrl: bookingUrl(g.campground.placeId, g.campground.facilityId),
+      }
+    }),
   }))
 
   const openDates = [...new Set(groups.flatMap((g) => g.nights.map((n) => n.date)))].sort()
@@ -104,6 +126,9 @@ export function summarize(
       where: where.label,
       nights: when.settings.nights,
       arrivalDays: when.settings.arrivalDays,
+      siteTypes: siteTypeSlugs(when.settings.siteTypes),
+      // Empty for the default set — the search everybody gets is not worth a line.
+      siteTypesPhrase: siteTypesPhrase(when.settings.siteTypes) || undefined,
       from: when.from,
       to: when.to,
       datesChecked: meta.datesChecked,
@@ -124,6 +149,17 @@ export function summarize(
     shareUrl: meta.shareUrl,
     note: NOTE,
   }
+}
+
+/**
+ * What a campground is, in a few words, or nothing when it has said nothing.
+ *
+ * Shared with get_sites so the drill-down describes the campground exactly as the summary
+ * that sent the agent there did.
+ */
+export function tagsFor(item: CampgroundAvailability | null | undefined): string[] {
+  if (!item?.siteTypes) return []
+  return siteTypeTags(item.siteTypes, item.maxVehicleLength)
 }
 
 /**

@@ -99,20 +99,21 @@ describe('groupByPark', () => {
     expect(parks[0].location).toEqual({ lat: 37, lng: -121 })
   })
 
-  it('keeps a park whose campgrounds are all booked, and counts them', () => {
+  it('keeps a park whose campgrounds are all booked, and names them', () => {
     const parks = groupByPark([avail(1, 10, [date('2026-08-28', 0)]), avail(2, 10, [])])
     expect(parks).toHaveLength(1)
     expect(parks[0].open).toEqual([])
-    expect(parks[0].closed).toBe(2)
+    // Named rather than counted: the sheet lists them so they can be favorited for later.
+    expect(parks[0].closed.map((c) => c.campground.facilityId)).toEqual([1, 2])
   })
 
-  it('counts only the campgrounds with nothing open as closed', () => {
+  it('lists only the campgrounds with nothing open as closed', () => {
     const parks = groupByPark([
       avail(1, 10, [date('2026-08-28')]),
       avail(2, 10, [date('2026-08-28', 0)]),
     ])
     expect(parks[0].open).toHaveLength(1)
-    expect(parks[0].closed).toBe(1)
+    expect(parks[0].closed.map((c) => c.campground.facilityId)).toEqual([2])
   })
 
   it('drops campgrounds with no coordinates, and parks left with none', () => {

@@ -36,6 +36,11 @@ const SOURCE = process.env.SCOUTER_WEB ?? resolve(ROOT, '..', 'scouter-web')
  * arguments), and the label modules, since an agent wants fields rather than "Fri & Sat
  * arrivals · 2 nights".
  *
+ * whenLabel.ts is the one label module that comes anyway, and not for its labels:
+ * siteTypes.ts imports joinWithAmpersand from it. Copying the module is better than the
+ * alternatives — rewriting the import would break the byte-identical rule, and reimplementing
+ * three lines here would put a second copy of a shared helper in the tree.
+ *
  * nominatim.ts is here for its *pure* halves — the parser, the ranker, the region label.
  * Its two fetch functions cannot work under Node and are never called; see src/node/geocode.ts.
  */
@@ -50,6 +55,8 @@ const FILES = [
   'domain/parks.ts',
   'domain/nights.ts',
   'domain/estimate.ts',
+  'domain/siteTypes.ts',
+  'domain/whenLabel.ts',
   'domain/availability.ts',
   'domain/catalog.ts',
   'domain/scanner.ts',
@@ -71,6 +78,8 @@ const TESTS = [
   'domain/parks.test.ts',
   'domain/nights.test.ts',
   'domain/estimate.test.ts',
+  'domain/siteTypes.test.ts',
+  'domain/whenLabel.test.ts',
   'domain/availability.test.ts',
   'domain/scanner.test.ts',
   'domain/nominatim.test.ts',

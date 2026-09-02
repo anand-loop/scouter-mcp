@@ -58,7 +58,8 @@ describe('summarize', () => {
 
   // The invariant the whole two-tier design rests on. get_sites is where labels live.
   it('never lets a site label escape', () => {
-    const json = JSON.stringify(summarize(slots, WHERE, when, meta))
+    const tagged = slots.map((s) => ({ ...s, siteTypes: [1, 1015], maxVehicleLength: 30 }))
+    const json = JSON.stringify(summarize(tagged, WHERE, when, meta))
     expect(json).not.toContain('unitId')
     expect(json).not.toContain('freeSites')
     expect(json).not.toContain('"label"')
@@ -120,10 +121,42 @@ describe('summarize', () => {
       where: 'Big Sur · 50 mi',
       nights: 1,
       arrivalDays: [6],
+      siteTypes: ['standard', 'group', 'lodging', 'hike-in', 'rv', 'equestrian', 'environmental'],
+      // The default set says nothing worth repeating on every answer.
+      siteTypesPhrase: undefined,
       from: '2026-08-30',
       to: '2026-11-30',
       datesChecked: 13,
     })
+  })
+
+  // The filter defaults, so a caller who never mentioned site types still needs to see that
+  // day use was left out — otherwise "nothing open" is indistinguishable from "nothing open
+  // that you can sleep in".
+  it('always states the site-type filter, default or not', () => {
+    expect(summarize(slots, WHERE, when, meta).criteria.siteTypes).not.toContain('day-use')
+
+    const narrowed = normalizeWhen({ arrivalDays: [6] }, AUG_30, [1014])
+    const s = summarize(slots, WHERE, narrowed, meta)
+    expect(s.criteria.siteTypes).toEqual(['hike-in'])
+    expect(s.criteria.siteTypesPhrase).toBe('Hike-in / bike-in / boat-in')
+  })
+
+  // What the campground is, not what the search asked for: the tags are read from every
+  // unit, so an RV length survives a search that excluded hook-ups.
+  it('tags a campground with the kinds of site it has', () => {
+    const s = summarize(
+      [result(MAIN, 14, [['2026-09-19', 1]], { siteTypes: [1, 1015], maxVehicleLength: 30 })],
+      WHERE,
+      when,
+      meta,
+    )
+    expect(s.parks[0].campgrounds[0].tags).toEqual(['RV up to 30 ft'])
+  })
+
+  it('omits tags entirely when the units describe nothing', () => {
+    const s = summarize([result(MAIN, 14, [['2026-09-19', 1]], { siteTypes: [1] })], WHERE, when, meta)
+    expect('tags' in s.parks[0].campgrounds[0]).toBe(false)
   })
 })
 

@@ -5,6 +5,7 @@
 // bare string alias upstream, so nothing but a call to isMonthKey will catch "2026-13".
 import { z } from 'zod'
 import { DEFAULT_RADIUS, SCAN_CAP } from '../core/domain/geo'
+import { SITE_TYPE_SLUGS } from '../siteTypes'
 
 export const whereShape = {
   place: z
@@ -54,4 +55,24 @@ export const maxCampgroundsShape = {
     .int()
     .optional()
     .describe(`Cap on campgrounds scanned, nearest first. Default and maximum ${SCAN_CAP}.`),
+}
+
+/**
+ * What kinds of site count as a match.
+ *
+ * An enum rather than free text or the raw `UnitCategoryId`s: the allowed values travel with
+ * the schema, so an agent reads them off the tool definition instead of guessing that
+ * hike-in sites are category 1014.
+ *
+ * Omitted means everything you can sleep in. Day use has to be asked for by name, because
+ * "Weber Point Picnic Area, 1 site free" is not an answer to "where can I camp?" — and an
+ * agent that can't tell the two apart will happily report it as one.
+ */
+export const siteTypesShape = {
+  siteTypes: z
+    .array(z.enum(SITE_TYPE_SLUGS))
+    .optional()
+    .describe(
+      'Which kinds of site count as a match. Defaults to everything you can sleep in — day use is excluded unless you name it.',
+    ),
 }
