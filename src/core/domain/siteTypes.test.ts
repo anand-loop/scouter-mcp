@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ALL_SITE_TYPES,
   DEFAULT_SITE_TYPES,
+  hasWantedSiteType,
   isDefaultSiteTypes,
   isEverySiteType,
   normalizeSiteTypes,
@@ -74,6 +75,35 @@ describe('isEverySiteType / isDefaultSiteTypes', () => {
     expect(isDefaultSiteTypes([...DEFAULT_SITE_TYPES].reverse())).toBe(true)
     expect(isDefaultSiteTypes(ALL_SITE_TYPES)).toBe(false)
     expect(isDefaultSiteTypes([])).toBe(false)
+  })
+})
+
+describe('hasWantedSiteType', () => {
+  it('matches a campground that has one of the wanted kinds', () => {
+    expect(hasWantedSiteType([1, 1015], [1008, 1015])).toBe(true)
+  })
+
+  it('rejects a campground whose kinds are all excluded', () => {
+    expect(hasWantedSiteType([1015], [1008])).toBe(false)
+    // Day use off by default is the case the filter exists for: a picnic-area-only
+    // facility is not a campground the search was ever about.
+    expect(hasWantedSiteType([7], DEFAULT_SITE_TYPES)).toBe(false)
+  })
+
+  it('matches everything when nothing is excluded', () => {
+    expect(hasWantedSiteType([7], ALL_SITE_TYPES)).toBe(true)
+  })
+
+  // Undefined is a campground that errored; empty is one the grid returned no bookable
+  // units for. Neither is evidence of a mismatch, and dropping them would hide a
+  // campground that does match.
+  it('keeps a campground whose kinds are unknown', () => {
+    expect(hasWantedSiteType(undefined, [1008])).toBe(true)
+    expect(hasWantedSiteType([], [1008])).toBe(true)
+  })
+
+  it('matches nothing knowable when no kind is wanted', () => {
+    expect(hasWantedSiteType([1], [])).toBe(false)
   })
 })
 

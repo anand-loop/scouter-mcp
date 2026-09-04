@@ -87,7 +87,7 @@ npm run sync:core    # re-copy from ../scouter-web (or $SCOUTER_WEB)
 npm run check:core   # fail if src/core/ was edited, or scouter-web has moved on
 ```
 
-The upstream test suites come with the code — ~260 assertions pinning the availability rules
+The upstream test suites come with the code — ~280 assertions pinning the availability rules
 on this side too — so a botched port fails `npm test` rather than quietly returning different
 dates from the web app.
 

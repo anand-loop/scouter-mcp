@@ -125,6 +125,54 @@ describe('groupByPark', () => {
     expect(groupByPark([null, { ...avail(1, 10, [], { error: 'boom' }), location: undefined }])).toEqual([])
   })
 
+  // The bug this fixes: filter for cabins and every RV-only campground checked along the
+  // way was still pinned, as a dot that could never have had anything to offer.
+  it('drops campgrounds with none of the wanted site types', () => {
+    const parks = groupByPark(
+      [
+        avail(1, 10, [date('2026-08-28')], { siteTypes: [1008] }),
+        avail(2, 20, [date('2026-08-28', 0)], { siteTypes: [1015] }),
+      ],
+      [1008],
+    )
+    expect(parks.map((p) => p.placeId)).toEqual([10])
+  })
+
+  it('leaves an excluded campground out of its park’s closed list', () => {
+    const parks = groupByPark(
+      [
+        avail(1, 10, [date('2026-08-28')], { siteTypes: [1008] }),
+        avail(2, 10, [date('2026-08-28', 0)], { siteTypes: [1015] }),
+      ],
+      [1008],
+    )
+    expect(parks[0].open).toHaveLength(1)
+    expect(parks[0].closed).toEqual([])
+  })
+
+  // Excluding by masking rather than compacting: `index` is the slot index a retry and the
+  // detail link use, so the campground after an excluded one must keep its own number.
+  it('keeps slot indexes when a campground is excluded', () => {
+    const parks = groupByPark(
+      [
+        avail(1, 10, [date('2026-08-28')], { siteTypes: [1015] }),
+        avail(2, 10, [date('2026-08-28')], { siteTypes: [1008] }),
+      ],
+      [1008],
+    )
+    expect(parks[0].open.map((g) => g.index)).toEqual([1])
+  })
+
+  it('keeps a campground the grid never described', () => {
+    const parks = groupByPark([avail(1, 10, [date('2026-08-28', 0)])], [1008])
+    expect(parks[0].closed.map((c) => c.campground.facilityId)).toEqual([1])
+  })
+
+  it('pins everything when no filter is passed', () => {
+    const parks = groupByPark([avail(1, 10, [date('2026-08-28', 0)], { siteTypes: [1015] })])
+    expect(parks).toHaveLength(1)
+  })
+
   it('orders parks so the busiest paint last', () => {
     const parks = groupByPark([
       avail(1, 10, [date('2026-08-28')]),

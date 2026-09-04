@@ -77,8 +77,31 @@ export function normalizeSiteTypes(v: unknown): SiteTypeId[] {
 }
 
 /** Whether a set leaves nothing out — the case worth saying nothing about. */
-export function isEverySiteType(ids: SiteTypeId[]): boolean {
+export function isEverySiteType(ids: readonly SiteTypeId[]): boolean {
   return ids.length === ALL_SITE_TYPES.length
+}
+
+/**
+ * Whether a campground has any site of a kind the search is asking for.
+ *
+ * `present` is what the campground reports — every category its bookable units carry, filter
+ * or no filter, as `describeUnits` reads it. A campground with none of the wanted kinds was
+ * never a candidate: it is not "checked and full", it is somewhere the search was never
+ * about, and a map pin saying otherwise is answering a question nobody asked.
+ *
+ * Undefined or empty `present` means the grid never said — a campground that errored, or one
+ * closed for the whole window — and those are kept. "We don't know" is a different answer
+ * from "no", and dropping a pin on a guess would hide a campground that does match.
+ *
+ * A complete `wanted` set narrows nothing, so it matches everything without a lookup.
+ */
+export function hasWantedSiteType(
+  present: readonly SiteTypeId[] | undefined,
+  wanted: readonly SiteTypeId[],
+): boolean {
+  if (!present || present.length === 0) return true
+  if (isEverySiteType(wanted)) return true
+  return present.some((id) => wanted.includes(id))
 }
 
 /** Whether a set is what a search gets when it says nothing about site types. */

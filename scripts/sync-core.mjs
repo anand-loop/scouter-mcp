@@ -84,6 +84,7 @@ const TESTS = [
   'domain/scanner.test.ts',
   'domain/nominatim.test.ts',
   'api/limiter.test.ts',
+  'api/rcApi.test.ts',
 ]
 
 const ALL = [...FILES, ...TESTS]

@@ -5,6 +5,7 @@
 // their campgrounds have openings, and defers the campground list to a sheet.
 import type { LatLng } from './geo'
 import { type CampgroundGroup, groupByCampground } from './nights'
+import { hasWantedSiteType, type SiteTypeId } from './siteTypes'
 import type { CampgroundAvailability, SavedCampground } from './types'
 
 /** A campground that was checked and had nothing open. */
@@ -77,19 +78,35 @@ export interface ParkGroup {
  *
  * A park where everything is booked still earns a pin: knowing it was checked and came up
  * empty is information, and its absence would read as "we didn't look".
+ *
+ * `siteTypes` is the search's filter, and it draws the line between the two. A campground
+ * whose sites are none of the wanted kinds is not a checked-and-full campground — it was
+ * never a candidate, and an empty pin over it claims the search considered somewhere it
+ * had already ruled out. Filter for cabins and the RV-only campground next door drops off
+ * the map entirely rather than sitting there as a dot that could never have been anything
+ * else. Omit the argument for a map with no filter behind it.
  */
 export function groupByPark(
   slots: ReadonlyArray<CampgroundAvailability | null>,
+  siteTypes?: readonly SiteTypeId[],
 ): ParkGroup[] {
+  // Masked to null rather than compacted, because a group's `index` is its index *into
+  // slots* — the handle a retry and the detail link use. Dropping entries would renumber
+  // every campground after the first excluded one, and null is already the shape both
+  // groupings below skip.
+  const visible = siteTypes
+    ? slots.map((item) => (item && hasWantedSiteType(item.siteTypes, siteTypes) ? item : null))
+    : slots
+
   const openByPark = new Map<number, CampgroundGroup[]>()
-  for (const group of groupByCampground(slots)) {
+  for (const group of groupByCampground(visible)) {
     const list = openByPark.get(group.campground.placeId) ?? []
     list.push(group)
     openByPark.set(group.campground.placeId, list)
   }
 
   const parks = new Map<number, { name: string; points: LatLng[]; closed: ClosedCampground[] }>()
-  for (const item of slots) {
+  for (const item of visible) {
     if (!item?.location) continue
     const { placeId, parkName } = item.campground
     const park = parks.get(placeId) ?? { name: parkName, points: [], closed: [] }
