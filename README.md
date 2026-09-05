@@ -122,25 +122,6 @@ npm run build    # typecheck, then bundle to dist/index.js with esbuild
 npm run inspect  # build and open the MCP Inspector
 ```
 
-`src/core/` is copied **byte-identical** from the Scouter web app and never edited here, so
-a diff against the source is always meaningful; `MANIFEST.json` records a SHA-256 per file
-and the commit it came from.
-
-```bash
-npm run sync:core    # re-copy from ../scouter-web (or $SCOUTER_WEB)
-npm run check:core   # fail if src/core/ was edited, or scouter-web has moved on
-```
-
-Two consequences worth knowing before you touch the build: `tsconfig.json` keeps `lib: DOM`
-so the core typechecks exactly as it does upstream, and the build bundles with esbuild
-because the core's imports are extensionless, which Node's ESM loader rejects. Sourcemaps
-are off by default (`SOURCEMAP=1 npm run build`) since esbuild would embed scouter-web's
-sources in the published tarball.
-
-`src/node/geocode.ts` is the one deliberate divergence: Nominatim answers 403 without a
-User-Agent, which `fetch` in Node won't send. It reuses the core's URLs, parser and ranker
-so the two can't disagree about what a result means.
-
 ## License
 
 MIT
